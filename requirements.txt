@@ -4,4 +4,4 @@ folium
 streamlit_folium
 requests
 shapely
-geopandas
+boto3
