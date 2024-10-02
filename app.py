@@ -9,6 +9,14 @@ from folium.plugins import Draw
 import boto3
 from botocore.exceptions import NoCredentialsError
 
+# Initialize session state for client information and color mapping
+if 'client_info' not in st.session_state:
+    st.session_state.client_info = {}
+if 'client_colors' not in st.session_state:
+    st.session_state.client_colors = {}
+if 'used_colors' not in st.session_state:
+    st.session_state.used_colors = set()
+
 # Functions to interact with AWS S3
 def load_existing_polygons():
     s3 = boto3.client(
@@ -65,6 +73,31 @@ def save_polygon_data(polygon_data):
     except Exception as e:
         st.error(f"Error saving data to S3: {e}")
 
+def reset_polygon_data():
+    # Create an empty DataFrame
+    df = pd.DataFrame(columns=[
+        'Nome', 'Cognome', 'Nome Impresa', 'Area Name', 'Area Size',
+        'Streets', 'Places', 'Color', 'Coordinates'
+    ])
+    
+    # Convert DataFrame to CSV
+    csv_buffer = df.to_csv(index=False)
+    
+    # Upload empty CSV to S3
+    s3 = boto3.resource(
+        's3',
+        aws_access_key_id=st.secrets["aws"]["aws_access_key_id"],
+        aws_secret_access_key=st.secrets["aws"]["aws_secret_access_key"],
+        region_name=st.secrets["aws"]["region_name"]
+    )
+    try:
+        s3.Object('napoligis', 'napoli_polygon_data.csv').put(Body=csv_buffer)
+        st.success("All entries have been reset.")
+    except NoCredentialsError:
+        st.error("AWS credentials not available.")
+    except Exception as e:
+        st.error(f"Error resetting data in S3: {e}")
+
 # Function to get the next available color
 def get_next_color(used_colors):
     COLOR_LIST = [
@@ -84,35 +117,57 @@ def get_next_color(used_colors):
 st.title('Napoli Map Platform')
 
 # Input boxes for user information
-st.sidebar.header('User Information')
-nome = st.sidebar.text_input('Nome')
-cognome = st.sidebar.text_input('Cognome')
-nome_impresa = st.sidebar.text_input('Nome Impresa')
+with st.sidebar:
+    st.header('User Information')
+    nome = st.text_input('Nome', value=st.session_state.client_info.get('Nome', ''))
+    cognome = st.text_input('Cognome', value=st.session_state.client_info.get('Cognome', ''))
+    nome_impresa = st.text_input('Nome Impresa', value=st.session_state.client_info.get('Nome_impresa', ''))
 
-if not nome or not cognome or not nome_impresa:
-    st.warning('Please fill in all the user information.')
+    if st.button('Done'):
+        if nome and cognome and nome_impresa:
+            st.session_state.client_info = {
+                'Nome': nome,
+                'Cognome': cognome,
+                'Nome_impresa': nome_impresa
+            }
+            # Assign a new color to the client
+            client_key = f"{nome}_{cognome}_{nome_impresa}"
+            color = get_next_color(st.session_state.used_colors)
+            st.session_state.client_colors[client_key] = color
+            st.session_state.used_colors.add(color)
+            # Clear input fields
+            st.session_state['Nome'] = ''
+            st.session_state['Cognome'] = ''
+            st.session_state['Nome_impresa'] = ''
+            st.success("User information saved. You can now draw a polygon.")
+        else:
+            st.warning('Please fill in all the user information.')
+    
+    if st.button('Reset'):
+        # Reset the data in S3 and clear session state
+        reset_polygon_data()
+        st.session_state.client_info = {}
+        st.session_state.client_colors = {}
+        st.session_state.used_colors = set()
+        st.experimental_rerun()
+
+if 'Nome' not in st.session_state.client_info:
+    st.warning('Please enter user information and click Done.')
     st.stop()
-
-client_info = {
-    'Nome': nome,
-    'Cognome': cognome,
-    'Nome_impresa': nome_impresa
-}
 
 # Load existing polygons
 df_polygons = load_existing_polygons()
 
-# Maintain client color mapping
-client_key = f"{nome}_{cognome}_{nome_impresa}"
+# Update client color mapping with existing data
 if not df_polygons.empty:
     df_polygons['Client Key'] = df_polygons['Nome'] + '_' + df_polygons['Cognome'] + '_' + df_polygons['Nome Impresa']
-    client_colors = df_polygons.set_index('Client Key')['Color'].to_dict()
-    used_colors = set(client_colors.values())
-else:
-    client_colors = {}
-    used_colors = set()
+    existing_client_colors = df_polygons.set_index('Client Key')['Color'].to_dict()
+    st.session_state.client_colors.update(existing_client_colors)
+    st.session_state.used_colors.update(existing_client_colors.values())
 
-color = client_colors.get(client_key, get_next_color(used_colors))
+client_info = st.session_state.client_info
+client_key = f"{client_info['Nome']}_{client_info['Cognome']}_{client_info['Nome_impresa']}"
+color = st.session_state.client_colors.get(client_key, get_next_color(st.session_state.used_colors))
 
 # Create a map centered on Napoli
 m = folium.Map(location=[40.8518, 14.2681], zoom_start=13)
@@ -127,7 +182,7 @@ if not df_polygons.empty:
             fill=True,
             fill_color=row['Color'],
             fill_opacity=0.5,
-            popup=f"{row['Nome']} {row['Cognome']} - {row['Nome Impresa']}"
+            tooltip=f"{row['Nome']} {row['Cognome']} - {row['Nome Impresa']}"
         ).add_to(m)
 
 # Add drawing tools to the map
@@ -143,9 +198,9 @@ draw = Draw(
 )
 draw.add_to(m)
 
-# Display the map
+# Display the map with increased size
 st.write('Draw a polygon on the map to select an area.')
-output = st_folium(m, width=700, height=500, key='map')
+output = st_folium(m, width=800, height=600, key='map')
 
 # Check if a new polygon was drawn
 if 'all_drawings' in output and output['all_drawings']:
@@ -153,13 +208,13 @@ if 'all_drawings' in output and output['all_drawings']:
     last_drawing = output['all_drawings'][-1]
     geometry = last_drawing['geometry']
     coords = geometry['coordinates'][0]
-
+    
     # Prepare data
     transformed_coords = [(lon, lat) for lon, lat in coords]
     polygon = Polygon(transformed_coords)
     area = polygon.area * (111139 ** 2)  # Approximate area in square meters
     area_size = f"{area:.2f} sqm"
-
+    
     # Use Overpass API to get street names and place names within the polygon
     overpass_url = 'https://overpass-api.de/api/interpreter'
     poly_coords_string = ' '.join(f"{lat} {lon}" for lon, lat in transformed_coords)
@@ -176,34 +231,42 @@ if 'all_drawings' in output and output['all_drawings']:
         );
         out tags;
     """
-
-    response = requests.post(overpass_url, data=overpass_query)
-    data = response.json()
-
-    elements = data.get('elements', [])
-
-    # Extract street names
-    street_names = [el['tags']['name'] for el in elements if 'highway' in el['tags'] and 'name' in el['tags']]
-
-    # Extract place names
-    place_names = [el['tags']['name'] for el in elements if any(tag in el['tags'] for tag in ['amenity', 'shop', 'tourism', 'leisure', 'building']) and 'name' in el['tags']]
-
-    streets = ', '.join(set(street_names))
-    places = ', '.join(set(place_names))
-
+    try:
+        response = requests.post(overpass_url, data=overpass_query)
+        data = response.json()
+        
+        elements = data.get('elements', [])
+        
+        # Extract street names
+        street_names = [el['tags']['name'] for el in elements if 'highway' in el['tags'] and 'name' in el['tags']]
+        
+        # Extract place names
+        place_names = [el['tags']['name'] for el in elements if any(tag in el['tags'] for tag in ['amenity', 'shop', 'tourism', 'leisure', 'building']) and 'name' in el['tags']]
+        
+        streets = ', '.join(set(street_names))
+        places = ', '.join(set(place_names))
+    except Exception as e:
+        st.error(f"Error fetching data from Overpass API: {e}")
+        streets = ''
+        places = ''
+    
     # Use Nominatim to get the area name
-    nominatim_url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={transformed_coords[0][1]}&lon={transformed_coords[0][0]}"
-    nominatim_response = requests.get(nominatim_url)
-    nominatim_data = nominatim_response.json()
-    area_name = nominatim_data.get('address', {}).get('suburb') or \
-                nominatim_data.get('address', {}).get('city_district') or \
-                nominatim_data.get('address', {}).get('city') or 'Unknown'
-
+    try:
+        nominatim_url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={transformed_coords[0][1]}&lon={transformed_coords[0][0]}"
+        nominatim_response = requests.get(nominatim_url)
+        nominatim_data = nominatim_response.json()
+        area_name = nominatim_data.get('address', {}).get('suburb') or \
+                    nominatim_data.get('address', {}).get('city_district') or \
+                    nominatim_data.get('address', {}).get('city') or 'Unknown'
+    except Exception as e:
+        st.error(f"Error fetching data from Nominatim: {e}")
+        area_name = 'Unknown'
+    
     # Prepare data to save
     polygon_data = {
-        'Nome': nome,
-        'Cognome': cognome,
-        'Nome Impresa': nome_impresa,
+        'Nome': client_info['Nome'],
+        'Cognome': client_info['Cognome'],
+        'Nome Impresa': client_info['Nome_impresa'],
         'Area Name': area_name,
         'Area Size': area_size,
         'Streets': streets,
@@ -211,12 +274,12 @@ if 'all_drawings' in output and output['all_drawings']:
         'Color': color,
         'Coordinates': json.dumps([(lon, lat) for lon, lat in coords])
     }
-
+    
     # Save data to AWS S3
     save_polygon_data(polygon_data)
-
+    
     st.success('Polygon data saved successfully.')
-
+    
     # Refresh the app to show the new polygon
     st.experimental_rerun()
 
