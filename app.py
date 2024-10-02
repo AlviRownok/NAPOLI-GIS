@@ -24,6 +24,8 @@ if 'map_displayed' not in st.session_state:
     st.session_state.map_displayed = False
 if 'polygon_saved' not in st.session_state:
     st.session_state.polygon_saved = False
+if 'user_counter' not in st.session_state:
+    st.session_state.user_counter = 0
 
 # Functions to interact with AWS S3
 def load_existing_polygons():
@@ -154,9 +156,11 @@ with st.sidebar:
 # Main App Logic
 if not st.session_state.map_displayed:
     st.header('User Information')
-    nome = st.text_input('Nome', key='nome')
-    cognome = st.text_input('Cognome', key='cognome')
-    nome_impresa = st.text_input('Nome Impresa', key='nome_impresa')
+    # Use unique keys for each user to avoid conflicts
+    user_key_suffix = f"user_{st.session_state.user_counter}"
+    nome = st.text_input('Nome', key=f'nome_{user_key_suffix}')
+    cognome = st.text_input('Cognome', key=f'cognome_{user_key_suffix}')
+    nome_impresa = st.text_input('Nome Impresa', key=f'nome_impresa_{user_key_suffix}')
     if st.button('OK'):
         if nome and cognome and nome_impresa:
             st.session_state.client_info = {
@@ -170,10 +174,6 @@ if not st.session_state.map_displayed:
             st.session_state.client_colors[client_key] = color
             st.session_state.used_colors.add(color)
             st.session_state.map_displayed = True
-            # Clear input fields
-            st.session_state.nome = ''
-            st.session_state.cognome = ''
-            st.session_state.nome_impresa = ''
             st.session_state.polygon_drawn = False
         else:
             st.warning('Please fill in all the user information.')
@@ -308,13 +308,12 @@ else:
                 # Reset for the next user
                 st.session_state.map_displayed = False
                 st.session_state.polygon_drawn = True
+                st.session_state.user_counter += 1  # Increment user counter for unique keys
             else:
                 st.warning("Please draw a polygon before clicking Done.")
     else:
         st.info("Thank you! You can enter a new user.")
 
-    # Clear polygon_drawn flag for the next user
-    if st.session_state.polygon_saved:
+        # Reset polygon_drawn for the next user
         st.session_state.polygon_drawn = False
-        st.session_state.polygon_saved = False
-
+        st.session_state.client_info = {}
