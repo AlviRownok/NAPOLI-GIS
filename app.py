@@ -162,9 +162,10 @@ with st.sidebar:
         else:
             st.warning('No data available to download.')
 
-    # Done Button
+    # Done Button inside a form
     st.subheader('User Actions')
-    done_clicked = st.button('Done')
+    with st.form(key='done_form'):
+        done_button = st.form_submit_button(label='Done')
 
 # ---------------------
 # Main Panel: User Information and Map
@@ -191,7 +192,8 @@ if not st.session_state.map_displayed:
             st.session_state.used_colors.add(color)
             st.session_state.map_displayed = True
             st.session_state.polygon_saved = False
-            st.session_state.user_counter += 1  # Increment for unique keys
+            # Increment user_counter for unique keys
+            st.session_state.user_counter += 1
         else:
             st.warning('Please fill in all the user information.')
 else:
@@ -242,8 +244,8 @@ else:
     st.write('Draw a polygon on the map to select an area.')
     output = st_folium(m, width=800, height=600, key='map')
 
-    # If 'Done' button is clicked in the sidebar
-    if done_clicked:
+    # Handle the "Done" button click from the sidebar form
+    if done_button:
         if 'all_drawings' in output and output['all_drawings']:
             # Get the last drawn feature
             last_drawing = output['all_drawings'][-1]
@@ -299,7 +301,8 @@ else:
             # Use Nominatim to get the area name
             try:
                 nominatim_url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={transformed_coords[0][1]}&lon={transformed_coords[0][0]}"
-                nominatim_response = requests.get(nominatim_url)
+                headers = {'User-Agent': 'Napoli-GIS-App/1.0'}
+                nominatim_response = requests.get(nominatim_url, headers=headers)
                 if nominatim_response.status_code == 200 and nominatim_response.content:
                     nominatim_data = nominatim_response.json()
                     area_name = nominatim_data.get('address', {}).get('suburb') or \
@@ -334,6 +337,7 @@ else:
                 # Reset for the next user
                 st.session_state.map_displayed = False
                 st.session_state.polygon_saved = False
+                st.session_state.client_info = {}
         else:
             st.warning("Please draw a polygon before clicking Done.")
 
