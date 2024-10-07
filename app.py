@@ -25,8 +25,8 @@ if 'polygon_saved' not in st.session_state:
     st.session_state.polygon_saved = False
 if 'user_counter' not in st.session_state:
     st.session_state.user_counter = 0
-if 'last_polygon' not in st.session_state:
-    st.session_state.last_polygon = None
+if 'all_drawings' not in st.session_state:
+    st.session_state.all_drawings = []
 
 # Functions to interact with AWS S3
 def load_existing_polygons():
@@ -132,11 +132,8 @@ def get_next_color(used_colors):
     import random
     return "#{:06x}".format(random.randint(0, 0xFFFFFF))
 
-# Streamlit app layout with two columns
-main_col, sidebar_col = st.columns([4, 1])
-
 # Sidebar Layout
-with sidebar_col:
+with st.sidebar:
     st.header('Developer Options')
     if st.checkbox('Developer Mode'):
         st.session_state.developer_mode = True
@@ -154,7 +151,7 @@ with sidebar_col:
             st.session_state.map_displayed = False
             st.session_state.polygon_saved = False
             st.session_state.user_counter = 0
-            st.session_state.last_polygon = None
+            st.session_state.all_drawings = []
             st.success("Application state has been reset.")
 
     if st.button('Download Data'):
@@ -165,13 +162,12 @@ with sidebar_col:
         else:
             st.warning('No data available to download.')
 
-    # 'Done' and 'Back' buttons
+    # 'Done' and 'Back' buttons in the sidebar
     if st.session_state.map_displayed and not st.session_state.polygon_saved:
         st.write("---")  # Separator
         if st.button('Done'):
-            if 'all_drawings' in output and output['all_drawings']:
-                # Get the last drawn feature
-                last_drawing = output['all_drawings'][-1]
+            if st.session_state.all_drawings:
+                last_drawing = st.session_state.all_drawings[-1]
                 geometry = last_drawing['geometry']
                 coords = geometry['coordinates'][0]
 
@@ -241,9 +237,9 @@ with sidebar_col:
 
                     # Prepare data to save
                     polygon_data = {
-                        'Nome': client_info['Nome'],
-                        'Cognome': client_info['Cognome'],
-                        'Nome Impresa': client_info['Nome_impresa'],
+                        'Nome': st.session_state.client_info['Nome'],
+                        'Cognome': st.session_state.client_info['Cognome'],
+                        'Nome Impresa': st.session_state.client_info['Nome_impresa'],
                         'Area Name': area_name,
                         'Area Size': area_size,
                         'Streets': streets,
@@ -255,106 +251,69 @@ with sidebar_col:
                     # Save data to AWS S3
                     save_polygon_data(polygon_data)
 
-                    st.session_state.last_polygon = polygon_data  # Store last polygon for display
-
                     st.success('Polygon data saved successfully.')
                     st.session_state.polygon_saved = True
             else:
                 st.warning("Please draw a polygon before clicking Done.")
 
-        if st.session_state.polygon_saved:
-            if st.button('Back'):
-                # Reset session state for the next user
-                st.session_state.map_displayed = False
-                st.session_state.polygon_saved = False
-                st.session_state.client_info = {}
-                st.session_state.last_polygon = None
+    if st.session_state.polygon_saved:
+        if st.button('Back'):
+            # Reset session state for the next user
+            st.session_state.map_displayed = False
+            st.session_state.polygon_saved = False
+            st.session_state.client_info = {}
+            st.session_state.all_drawings = []
+            st.success("You can enter a new user now.")
 
-    # Main Area Layout
-    with main_col:
-        if not st.session_state.map_displayed:
-            st.header('User Information')
-            # Use unique keys for each user to avoid conflicts
-            user_key_suffix = f"user_{st.session_state.user_counter}"
-            nome = st.text_input('Nome', key=f'nome_{user_key_suffix}')
-            cognome = st.text_input('Cognome', key=f'cognome_{user_key_suffix}')
-            nome_impresa = st.text_input('Nome Impresa', key=f'nome_impresa_{user_key_suffix}')
-            if st.button('OK'):
-                if nome and cognome and nome_impresa:
-                    st.session_state.client_info = {
-                        'Nome': nome,
-                        'Cognome': cognome,
-                        'Nome_impresa': nome_impresa
-                    }
-                    # Assign a new color to the client
-                    client_key = f"{nome}_{cognome}_{nome_impresa}"
-                    color = get_next_color(st.session_state.used_colors)
-                    st.session_state.client_colors[client_key] = color
-                    st.session_state.used_colors.add(color)
-                    st.session_state.map_displayed = True
-                    st.session_state.user_counter += 1  # Increment user counter for unique keys
-                    st.session_state.last_polygon = None  # Reset last_polygon
-                else:
-                    st.warning('Please fill in all the user information.')
-        else:
-            # Load existing polygons
-            df_polygons = load_existing_polygons()
+# Main Area Layout (Map Display)
+if st.session_state.map_displayed:
+    # Load existing polygons
+    df_polygons = load_existing_polygons()
 
-            # Update client color mapping with existing data
-            if not df_polygons.empty:
-                df_polygons['Client Key'] = df_polygons['Nome'] + '_' + df_polygons['Cognome'] + '_' + df_polygons['Nome Impresa']
-                existing_client_colors = df_polygons.set_index('Client Key')['Color'].to_dict()
-                st.session_state.client_colors.update(existing_client_colors)
-                st.session_state.used_colors.update(existing_client_colors.values())
+    # Update client color mapping with existing data
+    if not df_polygons.empty:
+        df_polygons['Client Key'] = df_polygons['Nome'] + '_' + df_polygons['Cognome'] + '_' + df_polygons['Nome Impresa']
+        existing_client_colors = df_polygons.set_index('Client Key')['Color'].to_dict()
+        st.session_state.client_colors.update(existing_client_colors)
+        st.session_state.used_colors.update(existing_client_colors.values())
 
-            client_info = st.session_state.client_info
-            client_key = f"{client_info['Nome']}_{client_info['Cognome']}_{client_info['Nome_impresa']}"
-            color = st.session_state.client_colors.get(client_key, get_next_color(st.session_state.used_colors))
+    client_info = st.session_state.client_info
+    client_key = f"{client_info['Nome']}_{client_info['Cognome']}_{client_info['Nome_impresa']}"
+    color = st.session_state.client_colors.get(client_key, get_next_color(st.session_state.used_colors))
 
-            # Create a map centered on Napoli
-            m = folium.Map(location=[40.8518, 14.2681], zoom_start=13)
+    # Create a map centered on Napoli
+    m = folium.Map(location=[40.8518, 14.2681], zoom_start=13)
 
-            # Add existing polygons to the map
-            if not df_polygons.empty:
-                for idx, row in df_polygons.iterrows():
-                    coords = row['Coordinates']
-                    folium.vector_layers.Polygon(
-                        locations=[(lat, lon) for lon, lat in coords],
-                        color=row['Color'],
-                        fill=True,
-                        fill_color=row['Color'],
-                        fill_opacity=0.5,
-                        tooltip=f"{row['Nome']} {row['Cognome']} - {row['Nome Impresa']}"
-                    ).add_to(m)
+    # Add existing polygons to the map
+    if not df_polygons.empty:
+        for idx, row in df_polygons.iterrows():
+            coords = row['Coordinates']
+            folium.vector_layers.Polygon(
+                locations=[(lat, lon) for lon, lat in coords],
+                color=row['Color'],
+                fill=True,
+                fill_color=row['Color'],
+                fill_opacity=0.5,
+                tooltip=f"{row['Nome']} {row['Cognome']} - {row['Nome Impresa']}"
+            ).add_to(m)
 
-            # Add drawing tools to the map
-            draw = Draw(
-                draw_options={
-                    'polyline': False,
-                    'polygon': True,
-                    'circle': False,
-                    'rectangle': False,
-                    'marker': False,
-                    'circlemarker': False
-                }
-            )
-            draw.add_to(m)
+    # Add drawing tools to the map
+    draw = Draw(
+        draw_options={
+            'polyline': False,
+            'polygon': True,
+            'circle': False,
+            'rectangle': False,
+            'marker': False,
+            'circlemarker': False
+        }
+    )
+    draw.add_to(m)
 
-            # Display the map with reduced size for performance
-            st.write('Draw a polygon on the map to select an area.')
-            output = st_folium(m, width=800, height=600, key='map')
+    # Display the map with reduced size for performance
+    st.write('Draw a polygon on the map to select an area.')
+    output = st_folium(m, width=800, height=600, key='map')
 
-            # Display the last saved polygon with label if available
-            if st.session_state.last_polygon:
-                st.write("### Last Saved Polygon")
-                last_map = folium.Map(location=[40.8518, 14.2681], zoom_start=13)
-                folium.vector_layers.Polygon(
-                    locations=[(lat, lon) for lon, lat in json.loads(st.session_state.last_polygon['Coordinates'])],
-                    color=st.session_state.last_polygon['Color'],
-                    fill=True,
-                    fill_color=st.session_state.last_polygon['Color'],
-                    fill_opacity=0.5,
-                    tooltip=f"{st.session_state.last_polygon['Nome']} {st.session_state.last_polygon['Cognome']} - {st.session_state.last_polygon['Nome Impresa']}"
-                ).add_to(last_map)
-                st_folium(last_map, width=800, height=600, key='last_map')
-
+    # Store 'all_drawings' in session_state
+    if output and 'all_drawings' in output:
+        st.session_state.all_drawings = output['all_drawings']
