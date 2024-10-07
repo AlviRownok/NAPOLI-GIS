@@ -9,7 +9,9 @@ from folium.plugins import Draw
 import boto3
 from botocore.exceptions import NoCredentialsError
 
-# Initialize session state variables
+# ------------------------------
+# Initialize Session State
+# ------------------------------
 if 'client_info' not in st.session_state:
     st.session_state.client_info = {}
 if 'client_colors' not in st.session_state:
@@ -25,7 +27,9 @@ if 'user_counter' not in st.session_state:
 if 'last_polygon' not in st.session_state:
     st.session_state.last_polygon = None
 
-# Functions to interact with AWS S3
+# ------------------------------
+# AWS S3 Interaction Functions
+# ------------------------------
 def load_existing_polygons():
     s3 = boto3.client(
         's3',
@@ -114,7 +118,9 @@ def reset_polygon_data():
     except Exception as e:
         st.error(f"Error resetting data in S3: {e}")
 
-# Function to get the next available color
+# ------------------------------
+# Utility Functions
+# ------------------------------
 def get_next_color(used_colors):
     COLOR_LIST = [
         '#FF0000', '#0000FF', '#008000', '#FFFF00',
@@ -129,11 +135,19 @@ def get_next_color(used_colors):
     import random
     return "#{:06x}".format(random.randint(0, 0xFFFFFF))
 
-# Streamlit app
-st.set_page_config(layout="wide")  # Make the app use the full browser width
+# ------------------------------
+# Streamlit Page Configuration
+# ------------------------------
+st.set_page_config(layout="centered")  # Use default layout
+
+# ------------------------------
+# Streamlit App Title
+# ------------------------------
 st.title('Napoli Map Platform')
 
-# Developer Reset Button and Download Data in Sidebar
+# ------------------------------
+# Developer Options in Sidebar
+# ------------------------------
 with st.sidebar:
     st.header('Developer Options')
     if st.checkbox('Developer Mode'):
@@ -156,9 +170,11 @@ with st.sidebar:
         else:
             st.warning('No data available to download.')
 
-    # 'Done' and 'Back' buttons will be placed here when needed
+    # 'Done' and 'Back' buttons will appear conditionally below
 
+# ------------------------------
 # Main App Logic
+# ------------------------------
 if not st.session_state.map_displayed:
     st.header('User Information')
     # Use unique keys for each user to avoid conflicts
@@ -227,13 +243,11 @@ else:
     )
     draw.add_to(m)
 
-    # Display the map with increased size
-    map_container = st.container()
-    with map_container:
-        st.write('Draw a polygon on the map to select an area.')
-        output = st_folium(m, width=1600, height=800, key='map')
+    # Display the map with smaller size
+    st.write('Draw a polygon on the map to select an area.')
+    output = st_folium(m, width=800, height=600, key='map')
 
-    # Place 'Done' and 'Back' buttons in the sidebar
+    # Sidebar: 'Done' and 'Back' buttons
     with st.sidebar:
         if not st.session_state.polygon_saved:
             if st.button('Done'):
@@ -336,9 +350,12 @@ else:
                 st.session_state.map_displayed = False
                 st.session_state.polygon_saved = False
                 st.session_state.client_info = {}
+                st.session_state.last_polygon = None
                 st.experimental_rerun()
 
-# Display the last saved polygon with label if available
+# ------------------------------
+# Display Last Saved Polygon (if any)
+# ------------------------------
 if st.session_state.last_polygon:
     # Create a separate map to display the last polygon with label
     last_map = folium.Map(location=[40.8518, 14.2681], zoom_start=13)
@@ -350,4 +367,4 @@ if st.session_state.last_polygon:
         fill_opacity=0.5,
         tooltip=f"{st.session_state.last_polygon['Nome']} {st.session_state.last_polygon['Cognome']} - {st.session_state.last_polygon['Nome Impresa']}"
     ).add_to(last_map)
-    st_folium(last_map, width=1600, height=800, key='last_map')
+    st_folium(last_map, width=800, height=600, key='last_map')
