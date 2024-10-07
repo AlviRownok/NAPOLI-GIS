@@ -158,8 +158,8 @@ For any inquiries or support, please contact:
 
 - **Alvi Rownok**
 - **Email**: alvi2241998@gmail.com
-- **LinkedIn**: [Your LinkedIn](https://www.linkedin.com/in/alvi-rownok/)
-- **GitHub**: [your-username](https://github.com/AlviRownok)
+- **LinkedIn**: [alvi-rownok](https://www.linkedin.com/in/alvi-rownok/)
+- **GitHub**: [AlviRownok](https://github.com/AlviRownok)
 
 ---
 
