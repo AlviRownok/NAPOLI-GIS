@@ -1,6 +1,6 @@
 # Napoli GIS Platform
 
-![Napoli GIS Banner](https://your-image-link.com/banner.png) <!-- Replace with an actual image link if available -->
+![Napoli GIS Banner](images/napoligis_ui.png)
 
 ## Table of Contents
 
