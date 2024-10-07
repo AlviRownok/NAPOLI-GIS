@@ -9,17 +9,15 @@ from folium.plugins import Draw
 import boto3
 from botocore.exceptions import NoCredentialsError
 
-# Initialize session state variables
+# ---------------------
+# Initialize Session State
+# ---------------------
 if 'client_info' not in st.session_state:
     st.session_state.client_info = {}
 if 'client_colors' not in st.session_state:
     st.session_state.client_colors = {}
 if 'used_colors' not in st.session_state:
     st.session_state.used_colors = set()
-if 'polygon_drawn' not in st.session_state:
-    st.session_state.polygon_drawn = False
-if 'developer_mode' not in st.session_state:
-    st.session_state.developer_mode = False
 if 'map_displayed' not in st.session_state:
     st.session_state.map_displayed = False
 if 'polygon_saved' not in st.session_state:
@@ -27,7 +25,9 @@ if 'polygon_saved' not in st.session_state:
 if 'user_counter' not in st.session_state:
     st.session_state.user_counter = 0
 
-# Functions to interact with AWS S3
+# ---------------------
+# AWS S3 Interaction Functions
+# ---------------------
 def load_existing_polygons():
     s3 = boto3.client(
         's3',
@@ -66,7 +66,7 @@ def save_polygon_data(polygon_data):
     # Load existing data
     df = load_existing_polygons()
 
-    # Append new data using pd.concat
+    # Append new data using pd.concat (since append is deprecated)
     df = pd.concat([df, pd.DataFrame([polygon_data])], ignore_index=True)
 
     # Convert DataFrame to CSV
@@ -112,7 +112,9 @@ def reset_polygon_data():
     except Exception as e:
         st.error(f"Error resetting data in S3: {e}")
 
-# Function to get the next available color
+# ---------------------
+# Utility Functions
+# ---------------------
 def get_next_color(used_colors):
     COLOR_LIST = [
         '#FF0000', '#0000FF', '#008000', '#FFFF00',
@@ -127,12 +129,19 @@ def get_next_color(used_colors):
     import random
     return "#{:06x}".format(random.randint(0, 0xFFFFFF))
 
-# Streamlit app
+# ---------------------
+# Streamlit App Layout
+# ---------------------
 st.title('Napoli Map Platform')
 
-# Developer Reset Button
+# ---------------------
+# Sidebar: Developer Options and Done Button
+# ---------------------
 with st.sidebar:
-    st.header('Developer Options')
+    st.header('Controls')
+    
+    # Developer Options
+    st.subheader('Developer Options')
     if st.checkbox('Developer Mode'):
         st.session_state.developer_mode = True
     else:
@@ -140,11 +149,11 @@ with st.sidebar:
 
     if st.session_state.developer_mode:
         if st.button('Reset'):
-            # Reset the data in S3 and clear session state
             reset_polygon_data()
             st.session_state.clear()
             st.success("Application state has been reset.")
 
+    # Download Data
     if st.button('Download Data'):
         df_polygons = load_existing_polygons()
         if not df_polygons.empty:
@@ -153,7 +162,13 @@ with st.sidebar:
         else:
             st.warning('No data available to download.')
 
-# Main App Logic
+    # Done Button
+    st.subheader('User Actions')
+    done_clicked = st.button('Done')
+
+# ---------------------
+# Main Panel: User Information and Map
+# ---------------------
 if not st.session_state.map_displayed:
     st.header('User Information')
     # Use unique keys for each user to avoid conflicts
@@ -161,6 +176,7 @@ if not st.session_state.map_displayed:
     nome = st.text_input('Nome', key=f'nome_{user_key_suffix}')
     cognome = st.text_input('Cognome', key=f'cognome_{user_key_suffix}')
     nome_impresa = st.text_input('Nome Impresa', key=f'nome_impresa_{user_key_suffix}')
+    
     if st.button('OK'):
         if nome and cognome and nome_impresa:
             st.session_state.client_info = {
@@ -174,8 +190,8 @@ if not st.session_state.map_displayed:
             st.session_state.client_colors[client_key] = color
             st.session_state.used_colors.add(color)
             st.session_state.map_displayed = True
-            st.session_state.polygon_drawn = False
             st.session_state.polygon_saved = False
+            st.session_state.user_counter += 1  # Increment for unique keys
         else:
             st.warning('Please fill in all the user information.')
 else:
@@ -226,8 +242,8 @@ else:
     st.write('Draw a polygon on the map to select an area.')
     output = st_folium(m, width=800, height=600, key='map')
 
-    # Display the "Done" button
-    if st.button('Done'):
+    # If 'Done' button is clicked in the sidebar
+    if done_clicked:
         if 'all_drawings' in output and output['all_drawings']:
             # Get the last drawn feature
             last_drawing = output['all_drawings'][-1]
@@ -258,18 +274,23 @@ else:
             """
             try:
                 response = requests.post(overpass_url, data=overpass_query)
-                data = response.json()
+                if response.status_code == 200 and response.content:
+                    data = response.json()
 
-                elements = data.get('elements', [])
+                    elements = data.get('elements', [])
 
-                # Extract street names
-                street_names = [el['tags']['name'] for el in elements if 'highway' in el['tags'] and 'name' in el['tags']]
+                    # Extract street names
+                    street_names = [el['tags']['name'] for el in elements if 'highway' in el['tags'] and 'name' in el['tags']]
 
-                # Extract place names
-                place_names = [el['tags']['name'] for el in elements if any(tag in el['tags'] for tag in ['amenity', 'shop', 'tourism', 'leisure', 'building']) and 'name' in el['tags']]
+                    # Extract place names
+                    place_names = [el['tags']['name'] for el in elements if any(tag in el['tags'] for tag in ['amenity', 'shop', 'tourism', 'leisure', 'building']) and 'name' in el['tags']]
 
-                streets = ', '.join(set(street_names))
-                places = ', '.join(set(place_names))
+                    streets = ', '.join(set(street_names))
+                    places = ', '.join(set(place_names))
+                else:
+                    st.error("Failed to fetch data from Overpass API.")
+                    streets = ''
+                    places = ''
             except Exception as e:
                 st.error(f"Error fetching data from Overpass API: {e}")
                 streets = ''
@@ -279,10 +300,14 @@ else:
             try:
                 nominatim_url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={transformed_coords[0][1]}&lon={transformed_coords[0][0]}"
                 nominatim_response = requests.get(nominatim_url)
-                nominatim_data = nominatim_response.json()
-                area_name = nominatim_data.get('address', {}).get('suburb') or \
-                            nominatim_data.get('address', {}).get('city_district') or \
-                            nominatim_data.get('address', {}).get('city') or 'Unknown'
+                if nominatim_response.status_code == 200 and nominatim_response.content:
+                    nominatim_data = nominatim_response.json()
+                    area_name = nominatim_data.get('address', {}).get('suburb') or \
+                                nominatim_data.get('address', {}).get('city_district') or \
+                                nominatim_data.get('address', {}).get('city') or 'Unknown'
+                else:
+                    st.error("Failed to fetch data from Nominatim.")
+                    area_name = 'Unknown'
             except Exception as e:
                 st.error(f"Error fetching data from Nominatim: {e}")
                 area_name = 'Unknown'
@@ -303,17 +328,15 @@ else:
             # Save data to AWS S3
             save_polygon_data(polygon_data)
 
-            st.success('Polygon data saved successfully.')
+            if st.session_state.polygon_saved:
+                st.success('Polygon data saved successfully.')
 
-            # Reset for the next user
-            st.session_state.map_displayed = False
-            st.session_state.polygon_drawn = True
-            st.session_state.user_counter += 1  # Increment user counter for unique keys
-            st.session_state.client_info = {}
+                # Reset for the next user
+                st.session_state.map_displayed = False
+                st.session_state.polygon_saved = False
         else:
             st.warning("Please draw a polygon before clicking Done.")
 
-    if st.session_state.polygon_drawn:
+    if st.session_state.polygon_saved:
         st.info("Thank you! You can enter a new user.")
-        st.session_state.polygon_drawn = False
-
+        st.session_state.polygon_saved = False
