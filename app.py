@@ -132,11 +132,8 @@ def get_next_color(used_colors):
     import random
     return "#{:06x}".format(random.randint(0, 0xFFFFFF))
 
-# Streamlit app layout with two columns
-main_col, sidebar_col = st.columns([4, 1])
-
 # Sidebar Layout
-with sidebar_col:
+with st.sidebar:
     st.header('Developer Options')
     if st.checkbox('Developer Mode'):
         st.session_state.developer_mode = True
@@ -220,7 +217,7 @@ with sidebar_col:
                         streets = ''
                         places = ''
 
-                    # Use Nominatim to get the area name
+                    # Use Nominatim to get the area name silently
                     try:
                         nominatim_url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={transformed_coords[0][1]}&lon={transformed_coords[0][0]}"
                         nominatim_response = requests.get(nominatim_url)
@@ -234,11 +231,16 @@ with sidebar_col:
                     except Exception:
                         area_name = 'Unknown'
 
+                    # Retrieve color from session state
+                    client_info = st.session_state.client_info
+                    client_key = f"{client_info['Nome']}_{client_info['Cognome']}_{client_info['Nome_impresa']}"
+                    color = st.session_state.client_colors.get(client_key, get_next_color(st.session_state.used_colors))
+
                     # Prepare data to save
                     polygon_data = {
-                        'Nome': st.session_state.client_info['Nome'],
-                        'Cognome': st.session_state.client_info['Cognome'],
-                        'Nome Impresa': st.session_state.client_info['Nome_impresa'],
+                        'Nome': client_info['Nome'],
+                        'Cognome': client_info['Cognome'],
+                        'Nome Impresa': client_info['Nome_impresa'],
                         'Area Name': area_name,
                         'Area Size': area_size,
                         'Streets': streets,
@@ -265,7 +267,7 @@ with sidebar_col:
             st.success("You can enter a new user now.")
 
 # Main Area Layout (Map Display or User Input)
-with main_col:
+with st.container():
     if not st.session_state.map_displayed:
         st.header('User Information')
         # Use unique keys for each user to avoid conflicts
@@ -287,6 +289,7 @@ with main_col:
                 st.session_state.used_colors.add(color)
                 st.session_state.map_displayed = True
                 st.session_state.user_counter += 1  # Increment user counter for unique keys
+                st.session_state.all_drawings = []  # Reset all_drawings
             else:
                 st.warning('Please fill in all the user information.')
     else:
