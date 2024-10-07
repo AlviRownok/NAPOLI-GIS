@@ -95,38 +95,6 @@ It's recommended to use a virtual environment to manage dependencies.
    requests
    ```
 
-### AWS S3 Configuration
-
-1. **Create an S3 Bucket**
-
-   - Log in to your AWS Management Console.
-   - Navigate to S3 and create a new bucket named `napoligis`.
-   - Configure permissions to allow read and write access for your application.
-
-2. **Set Up AWS Credentials in Streamlit**
-
-   - Create a `secrets.toml` file in the `.streamlit` directory of your project.
-
-     ```bash
-     mkdir .streamlit
-     nano .streamlit/secrets.toml
-     ```
-
-   - Add your AWS credentials:
-
-     ```toml
-     [aws]
-     aws_access_key_id = "YOUR_AWS_ACCESS_KEY_ID"
-     aws_secret_access_key = "YOUR_AWS_SECRET_ACCESS_KEY"
-     region_name = "YOUR_AWS_REGION"
-     ```
-
-   - **Important**: Ensure that `.streamlit/secrets.toml` is **not** committed to version control by adding it to `.gitignore`.
-
-     ```bash
-     echo ".streamlit/secrets.toml" >> .gitignore
-     ```
-
 ## Usage
 
 ### Running the App Locally
