@@ -16,16 +16,14 @@ if 'client_colors' not in st.session_state:
     st.session_state.client_colors = {}
 if 'used_colors' not in st.session_state:
     st.session_state.used_colors = set()
-if 'polygon_drawn' not in st.session_state:
-    st.session_state.polygon_drawn = False
-if 'developer_mode' not in st.session_state:
-    st.session_state.developer_mode = False
 if 'map_displayed' not in st.session_state:
     st.session_state.map_displayed = False
 if 'polygon_saved' not in st.session_state:
     st.session_state.polygon_saved = False
 if 'user_counter' not in st.session_state:
     st.session_state.user_counter = 0
+if 'last_polygon' not in st.session_state:
+    st.session_state.last_polygon = None
 
 # Functions to interact with AWS S3
 def load_existing_polygons():
@@ -53,8 +51,12 @@ def load_existing_polygons():
             'Streets', 'Places', 'Color', 'Coordinates'
         ])
         csv_buffer = df.to_csv(index=False)
-        s3.put_object(Bucket='napoligis', Key='napoli_polygon_data.csv', Body=csv_buffer)
-        return df
+        try:
+            s3.put_object(Bucket='napoligis', Key='napoli_polygon_data.csv', Body=csv_buffer)
+            return df
+        except Exception as e:
+            st.error(f"Error creating CSV in S3: {e}")
+            return df
     except NoCredentialsError:
         st.error("AWS credentials not available.")
         return pd.DataFrame()
@@ -128,9 +130,10 @@ def get_next_color(used_colors):
     return "#{:06x}".format(random.randint(0, 0xFFFFFF))
 
 # Streamlit app
+st.set_page_config(layout="wide")  # Make the app use the full browser width
 st.title('Napoli Map Platform')
 
-# Developer Reset Button
+# Developer Reset Button and Download Data in Sidebar
 with st.sidebar:
     st.header('Developer Options')
     if st.checkbox('Developer Mode'):
@@ -153,6 +156,8 @@ with st.sidebar:
         else:
             st.warning('No data available to download.')
 
+    # 'Done' and 'Back' buttons will be placed here when needed
+
 # Main App Logic
 if not st.session_state.map_displayed:
     st.header('User Information')
@@ -174,8 +179,8 @@ if not st.session_state.map_displayed:
             st.session_state.client_colors[client_key] = color
             st.session_state.used_colors.add(color)
             st.session_state.map_displayed = True
-            st.session_state.polygon_drawn = False
-            st.session_state.polygon_saved = False
+            st.session_state.user_counter += 1  # Increment user counter for unique keys
+            st.session_state.last_polygon = None  # Reset last_polygon
         else:
             st.warning('Please fill in all the user information.')
 else:
@@ -223,97 +228,126 @@ else:
     draw.add_to(m)
 
     # Display the map with increased size
-    st.write('Draw a polygon on the map to select an area.')
-    output = st_folium(m, width=800, height=600, key='map')
+    map_container = st.container()
+    with map_container:
+        st.write('Draw a polygon on the map to select an area.')
+        output = st_folium(m, width=1600, height=800, key='map')
 
-    # Display the "Done" button
-    if st.button('Done'):
-        if 'all_drawings' in output and output['all_drawings']:
-            # Get the last drawn feature
-            last_drawing = output['all_drawings'][-1]
-            geometry = last_drawing['geometry']
-            coords = geometry['coordinates'][0]
+    # Place 'Done' and 'Back' buttons in the sidebar
+    with st.sidebar:
+        if not st.session_state.polygon_saved:
+            if st.button('Done'):
+                if 'all_drawings' in output and output['all_drawings']:
+                    # Get the last drawn feature
+                    last_drawing = output['all_drawings'][-1]
+                    geometry = last_drawing['geometry']
+                    coords = geometry['coordinates'][0]
 
-            # Prepare data
-            transformed_coords = [(lon, lat) for lon, lat in coords]
-            polygon = Polygon(transformed_coords)
-            area = polygon.area * (111139 ** 2)  # Approximate area in square meters
-            area_size = f"{area:.2f} sqm"
+                    if not coords:
+                        st.error("No coordinates found in the drawn polygon.")
+                    else:
+                        # Prepare data
+                        transformed_coords = [(lon, lat) for lon, lat in coords]
+                        polygon = Polygon(transformed_coords)
+                        area = polygon.area * (111139 ** 2)  # Approximate area in square meters
+                        area_size = f"{area:.2f} sqm"
 
-            # Use Overpass API to get street names and place names within the polygon
-            overpass_url = 'https://overpass-api.de/api/interpreter'
-            poly_coords_string = ' '.join(f"{lat} {lon}" for lon, lat in transformed_coords)
-            overpass_query = f"""
-                [out:json];
-                (
-                    way["highway"](poly:"{poly_coords_string}");
-                    node["amenity"](poly:"{poly_coords_string}");
-                    node["shop"](poly:"{poly_coords_string}");
-                    node["tourism"](poly:"{poly_coords_string}");
-                    node["leisure"](poly:"{poly_coords_string}");
-                    node["building"](poly:"{poly_coords_string}");
-                    way["building"](poly:"{poly_coords_string}");
-                );
-                out tags;
-            """
-            try:
-                response = requests.post(overpass_url, data=overpass_query)
-                data = response.json()
+                        # Use Overpass API to get street names and place names within the polygon
+                        overpass_url = 'https://overpass-api.de/api/interpreter'
+                        poly_coords_string = ' '.join(f"{lat} {lon}" for lon, lat in transformed_coords)
+                        overpass_query = f"""
+                            [out:json];
+                            (
+                                way["highway"](poly:"{poly_coords_string}");
+                                node["amenity"](poly:"{poly_coords_string}");
+                                node["shop"](poly:"{poly_coords_string}");
+                                node["tourism"](poly:"{poly_coords_string}");
+                                node["leisure"](poly:"{poly_coords_string}");
+                                node["building"](poly:"{poly_coords_string}");
+                                way["building"](poly:"{poly_coords_string}");
+                            );
+                            out tags;
+                        """
+                        try:
+                            response = requests.post(overpass_url, data=overpass_query)
+                            if response.status_code == 200 and response.text.strip():
+                                data = response.json()
+                                elements = data.get('elements', [])
 
-                elements = data.get('elements', [])
+                                # Extract street names
+                                street_names = [el['tags']['name'] for el in elements if 'highway' in el['tags'] and 'name' in el['tags']]
 
-                # Extract street names
-                street_names = [el['tags']['name'] for el in elements if 'highway' in el['tags'] and 'name' in el['tags']]
+                                # Extract place names
+                                place_names = [el['tags']['name'] for el in elements if any(tag in el['tags'] for tag in ['amenity', 'shop', 'tourism', 'leisure', 'building']) and 'name' in el['tags']]
 
-                # Extract place names
-                place_names = [el['tags']['name'] for el in elements if any(tag in el['tags'] for tag in ['amenity', 'shop', 'tourism', 'leisure', 'building']) and 'name' in el['tags']]
+                                streets = ', '.join(set(street_names))
+                                places = ', '.join(set(place_names))
+                            else:
+                                streets = ''
+                                places = ''
+                                st.warning("No data fetched from Overpass API.")
+                        except Exception as e:
+                            st.error(f"Error fetching data from Overpass API: {e}")
+                            streets = ''
+                            places = ''
 
-                streets = ', '.join(set(street_names))
-                places = ', '.join(set(place_names))
-            except Exception as e:
-                st.error(f"Error fetching data from Overpass API: {e}")
-                streets = ''
-                places = ''
+                        # Use Nominatim to get the area name
+                        try:
+                            nominatim_url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={transformed_coords[0][1]}&lon={transformed_coords[0][0]}"
+                            nominatim_response = requests.get(nominatim_url)
+                            if nominatim_response.status_code == 200 and nominatim_response.text.strip():
+                                nominatim_data = nominatim_response.json()
+                                area_name = nominatim_data.get('address', {}).get('suburb') or \
+                                            nominatim_data.get('address', {}).get('city_district') or \
+                                            nominatim_data.get('address', {}).get('city') or 'Unknown'
+                            else:
+                                area_name = 'Unknown'
+                                st.warning("No data fetched from Nominatim.")
+                        except Exception as e:
+                            st.error(f"Error fetching data from Nominatim: {e}")
+                            area_name = 'Unknown'
 
-            # Use Nominatim to get the area name
-            try:
-                nominatim_url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={transformed_coords[0][1]}&lon={transformed_coords[0][0]}"
-                nominatim_response = requests.get(nominatim_url)
-                nominatim_data = nominatim_response.json()
-                area_name = nominatim_data.get('address', {}).get('suburb') or \
-                            nominatim_data.get('address', {}).get('city_district') or \
-                            nominatim_data.get('address', {}).get('city') or 'Unknown'
-            except Exception as e:
-                st.error(f"Error fetching data from Nominatim: {e}")
-                area_name = 'Unknown'
+                        # Prepare data to save
+                        polygon_data = {
+                            'Nome': client_info['Nome'],
+                            'Cognome': client_info['Cognome'],
+                            'Nome Impresa': client_info['Nome_impresa'],
+                            'Area Name': area_name,
+                            'Area Size': area_size,
+                            'Streets': streets,
+                            'Places': places,
+                            'Color': color,
+                            'Coordinates': json.dumps([(lon, lat) for lon, lat in coords])
+                        }
 
-            # Prepare data to save
-            polygon_data = {
-                'Nome': client_info['Nome'],
-                'Cognome': client_info['Cognome'],
-                'Nome Impresa': client_info['Nome_impresa'],
-                'Area Name': area_name,
-                'Area Size': area_size,
-                'Streets': streets,
-                'Places': places,
-                'Color': color,
-                'Coordinates': json.dumps([(lon, lat) for lon, lat in coords])
-            }
+                        # Save data to AWS S3
+                        save_polygon_data(polygon_data)
 
-            # Save data to AWS S3
-            save_polygon_data(polygon_data)
+                        st.session_state.last_polygon = polygon_data  # Store last polygon for display
 
-            st.success('Polygon data saved successfully.')
+                        st.success('Polygon data saved successfully.')
+                        st.session_state.polygon_saved = True
+                else:
+                    st.warning("Please draw a polygon before clicking Done.")
 
-            # Reset for the next user
-            st.session_state.map_displayed = False
-            st.session_state.polygon_drawn = True
-            st.session_state.user_counter += 1  # Increment user counter for unique keys
-            st.session_state.client_info = {}
-        else:
-            st.warning("Please draw a polygon before clicking Done.")
+        if st.session_state.polygon_saved:
+            if st.button('Back'):
+                # Reset session state for the next user
+                st.session_state.map_displayed = False
+                st.session_state.polygon_saved = False
+                st.session_state.client_info = {}
+                st.experimental_rerun()
 
-    if st.session_state.polygon_drawn:
-        st.info("Thank you! You can enter a new user.")
-        st.session_state.polygon_drawn = False
-
+# Display the last saved polygon with label if available
+if st.session_state.last_polygon:
+    # Create a separate map to display the last polygon with label
+    last_map = folium.Map(location=[40.8518, 14.2681], zoom_start=13)
+    folium.vector_layers.Polygon(
+        locations=[(lat, lon) for lon, lat in json.loads(st.session_state.last_polygon['Coordinates'])],
+        color=st.session_state.last_polygon['Color'],
+        fill=True,
+        fill_color=st.session_state.last_polygon['Color'],
+        fill_opacity=0.5,
+        tooltip=f"{st.session_state.last_polygon['Nome']} {st.session_state.last_polygon['Cognome']} - {st.session_state.last_polygon['Nome Impresa']}"
+    ).add_to(last_map)
+    st_folium(last_map, width=1600, height=800, key='last_map')
