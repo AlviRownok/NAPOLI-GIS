@@ -22,6 +22,8 @@
 
 Napoli GIS Platform is an interactive web application built with Streamlit and Folium that allows users to visualize and manage geographic data for the city of Napoli (Naples). Users can input their personal information, draw polygons on a map to define specific areas of interest, and have this data stored securely in an AWS S3 bucket. The platform ensures each user's polygon is displayed in a unique color for easy differentiation.
 
+**Live Application :** [Napoli_GIS](https://napoli-gis.streamlit.app/)
+
 ## Features
 
 - **User Information Input**: Users can enter their personal details including Name (Nome), Surname (Cognome), and Company Name (Nome Impresa).
